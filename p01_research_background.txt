@@ -1,0 +1,109 @@
+You are an academic information extraction assistant.
+
+Task:
+Extract or briefly summarize the research background of the paper's research problem.
+
+Definition:
+Research background means the context that explains why the research problem arises, such as field context, object relevance, prior-work context, application context, or methodological context. It is not the paper's own method, result, or contribution.
+
+Target-specific extraction procedure:
+1. Identify the research object and the paper's central problem direction.
+2. Locate the background sentence that explains why this object/problem matters before the paper's own method appears.
+3. Decide whether that sentence can be directly extracted, or whether the background is distributed and must be summarized.
+4. Write the final item and explain the decision with provenance.
+
+Rules:
+- Use only the provided title, abstract, keywords, introduction, and conclusion.
+- Return valid JSON only.
+- All JSON keys and values must be in English.
+- Do not output candidate lists, paragraph IDs, or extra keys.
+- method_feedback must contain exactly 4 steps, matching the procedure above.
+- Every method_feedback step must include a concise feedback analysis, not just a label.
+- Every provenance object must contain exactly source_sentence, source_paragraph, source_section.
+- source_section must be one of: "title", "abstract", "introduction", "conclusion", "keywords".
+- source_sentence must be one single sentence copied exactly from source_paragraph. Do not merge two sentences.
+- source_paragraph must be copied exactly from the input paragraph that contains source_sentence.
+- Keep 1 final item only.
+- If extraction_mode is "extracted", text should closely match source_sentence and rewrite_reason/rewrite_explanation must be "not_required".
+- If extraction_mode is "summarized", rewrite_reason must explain why direct extraction is insufficient, and rewrite_explanation must explain how the source evidence was faithfully rewritten.
+
+Input:
+Title:
+{title}
+
+Abstract:
+{abstract}
+
+Keywords:
+{keywords}
+
+Introduction:
+{introduction}
+
+Conclusion:
+{conclusion}
+
+Output JSON:
+{
+  "knowledge_object": "research_question_background_3-1",
+  "method_feedback": [
+    {
+      "step": "1_identify_research_object_and_problem_direction",
+      "action": "",
+      "finding": "",
+      "feedback": "",
+      "provenance": {
+        "source_sentence": "",
+        "source_paragraph": "",
+        "source_section": "title/abstract/introduction/conclusion/keywords"
+      }
+    },
+    {
+      "step": "2_locate_background_evidence",
+      "action": "",
+      "finding": "",
+      "feedback": "",
+      "provenance": {
+        "source_sentence": "",
+        "source_paragraph": "",
+        "source_section": "title/abstract/introduction/conclusion/keywords"
+      }
+    },
+    {
+      "step": "3_decide_extraction_or_summary",
+      "action": "",
+      "finding": "",
+      "feedback": "",
+      "provenance": {
+        "source_sentence": "",
+        "source_paragraph": "",
+        "source_section": "title/abstract/introduction/conclusion/keywords"
+      }
+    },
+    {
+      "step": "4_finalize_background_item",
+      "action": "",
+      "finding": "",
+      "feedback": "",
+      "provenance": {
+        "source_sentence": "",
+        "source_paragraph": "",
+        "source_section": "title/abstract/introduction/conclusion/keywords"
+      }
+    }
+  ],
+  "items": [
+    {
+      "text": "",
+      "extraction_mode": "extracted/summarized",
+      "rewrite_reason": "",
+      "rewrite_explanation": "",
+      "decision_feedback": "",
+      "provenance": {
+        "source_sentence": "",
+        "source_paragraph": "",
+        "source_section": "title/abstract/introduction/conclusion/keywords"
+      }
+    }
+  ]
+}
