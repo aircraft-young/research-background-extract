@@ -19,7 +19,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import requests
 
@@ -31,6 +31,7 @@ PROJECT_ROOT = SKILL_DIR.parent.parent.parent        # .../ionic-background-extr
 
 PROMPT_TEMPLATE_PATH = PROJECT_ROOT / "p01_research_background.txt"
 DEFAULT_PAPERS_DIR = PROJECT_ROOT / "15篇离子液体论文"
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "research_backgrounds"
 
 # ── API configuration ─────────────────────────────────────────────────
 
@@ -38,9 +39,9 @@ API_KEY = os.environ.get(
     "CHATANYWHERE_API_KEY",
     "sk-ur78CDqIf2MxGNuDBrHkhFD7eue9of8uND32UmJ0x4NA2CPl",
 )
-BASE_URL = "https://api.chatanywhere.tech"
 ENDPOINT = "/v1/chat/completions"
-MODEL_NAME = "deepseek-v4-pro"
+MODEL_NAME = os.environ.get("EXTRACT_MODEL_NAME", "deepseek-v4-pro")
+BASE_URL = os.environ.get("EXTRACT_BASE_URL", "https://api.chatanywhere.tech")
 
 API_TIMEOUT = int(os.environ.get("EXTRACT_API_TIMEOUT", "180"))
 API_MAX_TOKENS = int(os.environ.get("EXTRACT_API_MAX_TOKENS", "8192"))
@@ -143,6 +144,9 @@ def extract_section(paper: Dict, section_names: Tuple[str, ...],
     parts = []
     inside = False
 
+    # Pre-compute upper-case variants to avoid repeated .upper() in the loop
+    stop_upper = tuple(s.upper() for s in stop_names)
+
     for para in paragraphs:
         head = para.get("head", "").upper()
         text = get_paragraph_text(para).strip()
@@ -162,7 +166,7 @@ def extract_section(paper: Dict, section_names: Tuple[str, ...],
             # Stop at next major section
             if any(s in head for s in stop_names):
                 break
-            if any(content_upper.startswith(s.upper()) for s in stop_names):
+            if any(content_upper.startswith(s) for s in stop_upper):
                 break
             if text:
                 parts.append(text)
@@ -220,21 +224,34 @@ def parse_paper_json(paper_dir: str) -> Dict[str, str]:
 # ── LLM API ───────────────────────────────────────────────────────────
 
 
+# ── Prompt template cache ─────────────────────────────────────────────
+
+_prompt_template_cache: Optional[str] = None
+
+
 def load_prompt_template() -> str:
-    """Load the prompt template file."""
+    """Load the prompt template file (cached after first read)."""
+    global _prompt_template_cache
+    if _prompt_template_cache is not None:
+        return _prompt_template_cache
     path = str(PROMPT_TEMPLATE_PATH)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Prompt template not found: {path}")
     with open(path, encoding="utf-8") as f:
-        return f.read()
+        _prompt_template_cache = f.read()
+    return _prompt_template_cache
 
 
 def build_prompt(paper_info: Dict[str, str]) -> str:
-    """Fill the prompt template with paper data."""
+    """Fill the prompt template with paper data (single-pass substitution)."""
     template = load_prompt_template()
-    for key in ("title", "abstract", "keywords", "introduction", "conclusion"):
-        template = template.replace(f"{{{key}}}", paper_info.get(key, "") or "")
-    return template
+    replacements = {f"{{{k}}}": paper_info.get(k, "") or "" for k in
+                    ("title", "abstract", "keywords", "introduction", "conclusion")}
+    return re.sub(
+        r"\{title\}|\{abstract\}|\{keywords\}|\{introduction\}|\{conclusion\}",
+        lambda m: replacements[m.group()],
+        template,
+    )
 
 
 def call_llm_api(prompt: str, *, max_retries: int = 2) -> Optional[str]:
@@ -289,6 +306,23 @@ def call_llm_api(prompt: str, *, max_retries: int = 2) -> Optional[str]:
     return None
 
 
+def _extract_first_json(text: str) -> Optional[str]:
+    """Extract the first balanced JSON object from text using brace counting."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
 def parse_llm_response(raw: str) -> Optional[Dict]:
     """Parse the LLM response as JSON, with fallback extraction."""
     try:
@@ -296,11 +330,11 @@ def parse_llm_response(raw: str) -> Optional[Dict]:
     except json.JSONDecodeError:
         pass
 
-    # Fallback: extract JSON block
-    m = re.search(r"\{[\s\S]*\}", raw)
-    if m:
+    # Fallback: find first balanced JSON object
+    json_str = _extract_first_json(raw)
+    if json_str:
         try:
-            return json.loads(m.group())
+            return json.loads(json_str)
         except json.JSONDecodeError:
             pass
 
@@ -328,8 +362,9 @@ def extract_research_background(paper_info: Dict[str, str]) -> Optional[Dict]:
 
 def process_single_paper(paper_dir: str, output_dir: Optional[str] = None) -> bool:
     """Extract background from one paper directory. Returns True on success."""
+    paper_name = os.path.basename(paper_dir)
     print(f"\n{'─' * 56}")
-    print(f"Paper: {os.path.basename(paper_dir)}")
+    print(f"Paper: {paper_name}")
     print(f"{'─' * 56}")
 
     try:
@@ -349,14 +384,20 @@ def process_single_paper(paper_dir: str, output_dir: Optional[str] = None) -> bo
 
         print("OK")
 
-        out_dir = output_dir or paper_dir
-        out_path = os.path.join(out_dir, "research_background.json")
+        out_dir = output_dir or str(DEFAULT_OUTPUT_DIR)
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, f"{paper_name}_research_background.json")
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
 
-        text_preview = result.get("items", [{}])[0].get("text", "")[:100]
+        items = result.get("items", [])
+        n_items = len(items)
+        for idx, item in enumerate(items, 1):
+            preview = item.get("text", "")[:100]
+            mode = item.get("extraction_mode", "?")
+            tag = f"[{idx}/{n_items}]" if n_items > 1 else ""
+            print(f"  Item {tag} ({mode}): {preview}…")
         print(f"  Saved → {out_path}")
-        print(f"  Preview: {text_preview}…")
         return True
 
     except Exception as e:
@@ -364,10 +405,13 @@ def process_single_paper(paper_dir: str, output_dir: Optional[str] = None) -> bo
         return False
 
 
-def process_batch(papers_dir: str, skip_existing: bool = True) -> Dict[str, bool]:
+def process_batch(papers_dir: str, output_dir: Optional[str] = None,
+                  skip_existing: bool = True) -> Dict[str, bool]:
     """Batch-process all papers in a directory. Returns {paper_dir: success}."""
+    out_dir = output_dir or str(DEFAULT_OUTPUT_DIR)
     print(f"\n{'═' * 56}")
     print(f"Batch: {papers_dir}")
+    print(f"Output: {out_dir}")
     print(f"{'═' * 56}")
 
     if not os.path.isdir(papers_dir):
@@ -384,17 +428,20 @@ def process_batch(papers_dir: str, skip_existing: bool = True) -> Dict[str, bool
     if not paper_dirs:
         return {}
 
+    os.makedirs(out_dir, exist_ok=True)
+
     results: Dict[str, bool] = {}
     for i, paper_dir in enumerate(paper_dirs, 1):
         label = os.path.basename(paper_dir)
+        out_path = os.path.join(out_dir, f"{label}_research_background.json")
 
-        if skip_existing and os.path.exists(os.path.join(paper_dir, "research_background.json")):
+        if skip_existing and os.path.exists(out_path):
             print(f"[{i:>2}/{len(paper_dirs)}] {label[:40]} … SKIP (exists)")
             results[paper_dir] = True
             continue
 
         print(f"[{i:>2}/{len(paper_dirs)}] ", end="")
-        results[paper_dir] = process_single_paper(paper_dir)
+        results[paper_dir] = process_single_paper(paper_dir, output_dir=out_dir)
 
         if i < len(paper_dirs):
             time.sleep(1)  # rate-limit friendly
@@ -420,13 +467,14 @@ Examples:
   python3 scripts/extract.py --paper 15篇离子液体论文/4609501675dfcf877ab8433851a0f998
   python3 scripts/extract.py --batch
   python3 scripts/extract.py --batch --no-skip
+  python3 scripts/extract.py --batch --output research_backgrounds
         """,
     )
     parser.add_argument("--paper", "-p", help="Single paper directory path")
     parser.add_argument("--batch", "-b", action="store_true", help="Batch mode")
     parser.add_argument("--dir", "-d", help="Papers root directory (batch mode)")
     parser.add_argument("--no-skip", action="store_true", help="Re-extract even if result exists")
-    parser.add_argument("--output", "-o", help="Output directory (single mode)")
+    parser.add_argument("--output", "-o", help="Output directory (default: research_backgrounds/)")
     args = parser.parse_args()
 
     if args.paper:
@@ -435,7 +483,7 @@ Examples:
 
     if args.batch:
         papers_dir = args.dir or str(DEFAULT_PAPERS_DIR)
-        results = process_batch(papers_dir, skip_existing=not args.no_skip)
+        results = process_batch(papers_dir, output_dir=args.output, skip_existing=not args.no_skip)
         all_ok = all(results.values()) if results else False
         sys.exit(0 if all_ok else 1)
 

@@ -73,15 +73,21 @@ The `scripts/extract.py` script:
    from the PDF-parsed JSON structure (handles both string and list paragraph formats)
 2. Loads the prompt template from `p01_research_background.txt`
 3. Calls the ChatAnywhere API (deepseek-v4-pro, temperature=0.3, max_tokens=8192)
-4. Validates and saves the JSON response to `research_background.json`
+4. Validates and saves the JSON response to `research_backgrounds/{paper}_research_background.json`
 
 For API configuration details, see `references/api-config.md`.
 
-## Output format
+## Output
+
+Results are saved to `research_backgrounds/{paper_dir_name}_research_background.json` by default.
+Override with `--output <dir>`.
+
+### Output format
 
 The output JSON contains:
 
 - `knowledge_object`: identifier for the extracted knowledge unit
 - `method_feedback`: 4-step extraction trace (identify → locate → decide → finalize),
   each with action, finding, feedback, and provenance
-- `items`: single/multiple background items with text, extraction_mode, and provenance
+- `items`: 1-3 background items (allows multiple when the paper has distinct background aspects),
+  each with text, extraction_mode, and provenance

@@ -23,7 +23,7 @@ Rules:
 - source_section must be one of: "title", "abstract", "introduction", "conclusion", "keywords".
 - source_sentence must be one single sentence copied exactly from source_paragraph. Do not merge two sentences.
 - source_paragraph must be copied exactly from the input paragraph that contains source_sentence.
-- Keep 1 final item only.
+- Keep 1-3 final items. Include multiple items if the paper has distinct background aspects (e.g., different research gaps, different context angles). Otherwise keep a single item.
 - If extraction_mode is "extracted", text should closely match source_sentence and rewrite_reason/rewrite_explanation must be "not_required".
 - If extraction_mode is "summarized", rewrite_reason must explain why direct extraction is insufficient, and rewrite_explanation must explain how the source evidence was faithfully rewritten.
 

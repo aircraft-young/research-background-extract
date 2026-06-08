@@ -12,6 +12,7 @@ __pycache__/
 
 # Research output (generated)
 research_background.json
+research_backgrounds/
 
 # Secrets
 *.env
